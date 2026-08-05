@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<title>Wordbook</title>
+<title>English Word Book</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,500&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -344,6 +344,18 @@ main{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
 .side-word{font-family:'Fraunces',serif;font-size:1.15rem;font-weight:600;line-height:1.2;word-break:break-word}
 .side-meta{display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;margin-top:.25rem;
   font-size:.78rem;color:var(--ink-soft);font-weight:600}
+/* sign-in gate */
+.authgate{z-index:100;align-items:center;justify-content:center;padding:2rem 1.5rem}
+.authbox{width:100%;max-width:360px;text-align:center}
+.authlogo{display:flex;align-items:center;justify-content:center;gap:.55rem;font-weight:800;
+  font-size:1.9rem;letter-spacing:-.02em;margin-bottom:.5rem}
+.authlogo .brand-dot{width:.8rem;height:.8rem}
+.authsub{color:var(--ink-soft);font-weight:500;line-height:1.5;margin-bottom:1.5rem}
+.autherr{color:var(--red);font-weight:700;font-size:.86rem;margin-top:.6rem;min-height:1rem;line-height:1.4}
+.au-switch{display:block;width:100%;margin-top:1rem;color:var(--primary);font-weight:700;font-size:.9rem}
+.authfoot{color:var(--ink-soft);font-size:.8rem;font-weight:500;line-height:1.5;margin-top:1rem}
+.au-back{display:block;color:var(--ink-soft);font-weight:700;font-size:.88rem;margin-bottom:.9rem;text-align:left}
+.au-back:active{opacity:.6}
 
 /* ================= Responsive web layout (wide screens) =================
    Placed at the END of the stylesheet so these rules win over the base
@@ -407,7 +419,6 @@ main{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
   <div id="toast"></div>
 </div>
 
-<script src="config.js"></script>
 <script>
 "use strict";
 /* ============================================================
@@ -415,6 +426,38 @@ main{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
    Storage: localStorage (with in-memory fallback)
    Optional sync: Firebase Realtime DB + Google Sheets webhook
    ============================================================ */
+
+/* ╔══════════════════════════════════════════════════════════╗
+   ║  HOSTING SETUP — fill this in ONCE, then upload the file. ║
+   ║  Every device that opens your link is configured          ║
+   ║  automatically, so you never paste settings again.        ║
+   ╚══════════════════════════════════════════════════════════╝
+   • firebase   : paste your firebaseConfig object (must include databaseURL)
+   • sheetUrl   : (optional) your Apps Script /exec URL
+   • Sign-in lock — pick ONE of these two (the other stays ""):
+       - ownerUid   : RECOMMENDED. Your Firebase Auth UID (a random string,
+                      not personally identifying). Find it in the console:
+                      Authentication ▸ Users ▸ copy the "User UID" column.
+                      Nothing about you is visible in this file's public code.
+       - ownerEmail : simpler, but your email address sits in plain text in
+                      this file — anyone who views the page source can read
+                      it (even from a private GitHub repo, since the site
+                      itself still runs this code in the visitor's browser).
+                      Doesn't grant them access (a password is still needed),
+                      just visible. Use ownerUid instead if that bothers you.
+   Leave both "" to skip login entirely (single-user / local-only use).   */
+const BAKED = {
+  firebase: {
+    apiKey: "AIzaSyAEjlmri6EaVQrIlZjGndWBhxVQ-63tisk",
+    authDomain: "sunny-s-apps.firebaseapp.com",
+    databaseURL: "https://sunny-s-apps-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "sunny-s-apps"
+  },
+  sheetUrl: "https://script.google.com/macros/s/AKfycbywy3UzPct183bqobmui78zy-lIdx9xrMyELZ7F5wyxETqhzTHCelNvJC-MCgWJk3YT/exec",
+  ownerUid: "",                      /* optional: use this instead of email to keep your address out of the code */
+  ownerEmail: "msonedu@gmail.com"
+};
+
 
 /* ---------- Icons (inline SVG) ---------- */
 const I = {
@@ -453,7 +496,7 @@ const S = {
   cats: DEFAULT_CATS.slice(),
   lastCat: 'Book',
   lastSub: {},
-  settings: { fs:'md', theme:'light' },
+  settings: { fs:'md', theme:'light', guestMode:false },
   game: { streak:0, best:0, lastActive:null, xp:0, bestScore:0 },
   cfg: { firebase:'', sheet:'' },
   ui: { tab:'register', filter:'All', sort:'newest', q:'', scope:'All' }
@@ -477,10 +520,6 @@ function load(){
   // migrate: every category needs a subs[] list and a sub-label
   S.cats.forEach(c=>{ if(!Array.isArray(c.subs)) c.subs=[]; if(!c.subLabel) c.subLabel='Source'; });
   if(typeof S.lastSub!=='object' || !S.lastSub) S.lastSub={};
-  if(typeof window !== 'undefined' && window.CONFIG) {
-    if(window.CONFIG.firebase) S.cfg.firebase = window.CONFIG.firebase;
-    if(window.CONFIG.sheet) S.cfg.sheet = window.CONFIG.sheet;
-  }
 }
 function save(){
   rawSet(KEY, JSON.stringify({
@@ -547,7 +586,8 @@ function parseFirebaseConfig(raw){
   try{ return (new Function('return ('+s+')'))(); }catch(e){}  // tolerate JS-object syntax from the Firebase console
   return null;
 }
-let fbStatus='', fbFirstSync=true;
+let fbStatus='', fbFirstSync=true, authed=false, authUser=null;
+function requireAuth(){ return !!(typeof BAKED!=='undefined' && BAKED && (BAKED.ownerUid || BAKED.ownerEmail)); }
 function fbRefreshStatus(){ if(S.ui.tab==='settings' && el('view')) render(); }
 async function initFirebase(){
   fbReady=false; fbDB=null; fbFirstSync=true;
@@ -560,40 +600,76 @@ async function initFirebase(){
       await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
       await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js');
     }
+    if(requireAuth() && (!window.firebase || !window.firebase.auth)){
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js');
+    }
     if(!window.firebase || !window.firebase.database) throw new Error('sdk-unavailable');
     if(!window.firebase.apps.length) window.firebase.initializeApp(cfg);
     fbDB = window.firebase.database();
-    fbReady = true; fbStatus = 'Connected';
-    fbRefreshStatus();
-    // Live subscription: merge remote into local, then push up any local-only words once
-    fbDB.ref('vocab').on('value', snap=>{
-      const val = snap.val() || {};
-      const remote = Object.values(val);
-      const map = {};
-      S.entries.forEach(e=>map[e.id]=e);
-      remote.forEach(e=>{
-        if(!e || !e.id) return;
-        if(!map[e.id] || (e.updatedAt||0) >= (map[e.id].updatedAt||0)) map[e.id]=e;
+
+    if(requireAuth()){
+      const auth = window.firebase.auth();
+      try{ await auth.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL); }catch(e){}
+      auth.onAuthStateChanged(user=>{
+        authUser = user;
+        const ok = !!(user && (
+          (BAKED.ownerUid && user.uid === BAKED.ownerUid) ||
+          (BAKED.ownerEmail && (user.email||'').toLowerCase() === BAKED.ownerEmail.toLowerCase())
+        ));
+        if(ok){
+          authed = true; hideAuthGate();
+          if(S.settings.guestMode){ S.settings.guestMode=false; save(); }
+          startDataSync();
+        } else {
+          authed = false; fbReady = false;
+          if(user){ try{ auth.signOut(); }catch(e){} }   // wrong account signed in
+          if(!S.settings.guestMode) showAuthGate();
+        }
+        if(S.ui.tab==='settings' && el('view')) render();
       });
-      S.entries = Object.values(map);
-      save();
-      if(fbFirstSync){
-        fbFirstSync=false;
-        const remoteIds = new Set(remote.map(e=>e&&e.id));
-        S.entries.forEach(e=>{ if(!remoteIds.has(e.id)) fbWrite(e); });
-      }
-      if(S.ui.tab==='records' || S.ui.tab==='quiz' || S.ui.tab==='settings') render();
-    }, err=>{
-      fbStatus = 'Connected, but the database denied access — set the Rules to allow read/write, then Save again.';
-      fbReady = true; // SDK is fine; it's a rules issue
+      fbStatus = 'Sign in to sync across devices';
       fbRefreshStatus();
-    });
+    } else {
+      startDataSync();
+    }
   }catch(e){
     console.warn('Firebase init failed', e);
     fbReady=false;
     fbStatus = "Couldn't load Firebase. If you opened the file directly (address starts with file://), run it from a local server instead.";
     fbRefreshStatus();
   }
+}
+function startDataSync(){
+  if(!fbDB) return;
+  fbReady = true; fbStatus = 'Connected'; fbFirstSync = true;
+  fbRefreshStatus();
+  fbDB.ref('vocab').on('value', snap=>{
+    const val = snap.val() || {};
+    const remote = Object.values(val);
+    const map = {};
+    S.entries.forEach(e=>map[e.id]=e);
+    remote.forEach(e=>{
+      if(!e || !e.id) return;
+      if(!map[e.id] || (e.updatedAt||0) >= (map[e.id].updatedAt||0)) map[e.id]=e;
+    });
+    S.entries = Object.values(map);
+    save();
+    if(fbFirstSync){
+      fbFirstSync=false;
+      const remoteIds = new Set(remote.map(e=>e&&e.id));
+      S.entries.forEach(e=>{ if(!remoteIds.has(e.id)) fbWrite(e); });
+    }
+    if(S.ui.tab==='records' || S.ui.tab==='quiz' || S.ui.tab==='settings') render();
+  }, err=>{
+    fbReady = false;
+    fbStatus = 'Reached Firebase, but access was denied — check your Rules allow your account to read/write.';
+    fbRefreshStatus();
+  });
+}
+function signOutFirebase(){
+  try{ if(fbDB) fbDB.ref('vocab').off(); }catch(e){}
+  try{ if(window.firebase && window.firebase.auth) window.firebase.auth().signOut(); }catch(e){}
+  authed=false; fbReady=false; authUser=null; fbStatus='';
 }
 function fbWrite(entry){ if(fbReady && fbDB){ try{ fbDB.ref('vocab/'+entry.id).set(entry); }catch(e){} } }
 function fbRemove(id){ if(fbReady && fbDB){ try{ fbDB.ref('vocab/'+id).remove(); }catch(e){} } }
@@ -895,9 +971,6 @@ function viewQuiz(){
 /* ---------- SETTINGS ---------- */
 function viewSettings(){
   const st = S.settings;
-  const fsOpts = [['sm','A'],['md','A'],['lg','A'],['xl','A']];
-  const fbOn = !!S.cfg.firebase && fbReady;
-  const shOn = !!S.cfg.sheet;
   return `
     <div class="set-wrap">
     <div class="setgroup">
@@ -929,37 +1002,17 @@ function viewSettings(){
       </div>
     </div>
 
+    ${requireAuth() ? `
     <div class="setgroup">
-      <div class="gh">Sync</div>
-      <div class="setrow col">
-        <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
-          <div class="l">Firebase Realtime DB</div>
-          <span class="synced ${fbOn?'on':'off'}">${fbOn?'● Connected':'○ Off'}</span>
-        </div>
-        <div class="d" style="margin:.15rem 0 .6rem">Paste the whole <b>firebaseConfig</b> block from the Firebase console (must include <b>databaseURL</b>). JSON also works.</div>
-        <textarea class="miniinput" id="cfg-fb" rows="5" placeholder='const firebaseConfig = {
-  apiKey: "…",
-  databaseURL: "https://your-app-default-rtdb.firebasedatabase.app",
-  projectId: "…"
-};'>${esc(S.cfg.firebase)}</textarea>
+      <div class="gh">Account</div>
+      <div class="setrow">
+        <div><div class="l">${authed?'Signed in':(S.settings.guestMode?'Guest mode':'Not signed in')}</div>
+          <div class="d">${authed?esc((authUser&&authUser.email)||'this device'):(S.settings.guestMode?'Your words are only on this device':'Sign in to sync your words')}</div></div>
+        ${authed
+          ? '<button class="btn ghost" style="width:auto;padding:.6rem 1rem" id="btn-signout">Sign out</button>'
+          : '<button class="btn soft" style="width:auto;padding:.6rem 1rem" id="btn-login">Log in</button>'}
       </div>
-      <div class="setrow col">
-        <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
-          <div class="l">Google Sheets webhook</div>
-          <span class="synced ${shOn?'on':'off'}">${shOn?'● Set':'○ Off'}</span>
-        </div>
-        <div class="d" style="margin:.15rem 0 .6rem">Your Apps Script web app URL. Words are logged here automatically.</div>
-        <input class="miniinput" id="cfg-sheet" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(S.cfg.sheet)}">
-        <div class="row2"><button class="btn soft" id="btn-savecfg">Save &amp; connect</button></div>
-        <div class="helpbox" id="help-toggle" style="cursor:pointer;text-align:center;font-weight:700;color:var(--primary)">How do I set up the Google Sheet? ▾</div>
-        <div class="helpbox" id="help-body" style="display:none">
-          1. Open a new Google Sheet → <b>Extensions ▸ Apps Script</b>.<br>
-          2. Paste the script (in the file I sent you), then <b>Deploy ▸ New deployment ▸ Web app</b>.<br>
-          3. Set <b>Execute as: Me</b>, <b>Who has access: Anyone</b>, then copy the <code>/exec</code> URL here.<br>
-          Every add, edit, favorite, and delete is mirrored to the sheet.
-        </div>
-      </div>
-    </div>
+    </div>` : ''}
 
     <div class="setgroup">
       <div class="gh">Your data</div>
@@ -1104,24 +1157,14 @@ function bindSettings(){
     S.settings.theme=S.settings.theme==='dark'?'light':'dark'; save(); applyChrome(); render();
   };
   document.querySelectorAll('[data-editcat]').forEach(b=>b.onclick=()=>openManageCat(b.dataset.editcat));
-  const saveCfg=el('btn-savecfg'); if(saveCfg) saveCfg.onclick=()=>{
-    S.cfg.firebase=el('cfg-fb').value.trim();
-    S.cfg.sheet=el('cfg-sheet').value.trim();
-    save();
-    if(S.cfg.firebase){
-      const cfg=parseFirebaseConfig(S.cfg.firebase);
-      if(!cfg){ toast('Couldn\'t read that Firebase config — check for missing braces','⚠️'); }
-      else if(!cfg.databaseURL){ toast('Firebase config is missing databaseURL','⚠️'); }
-      else { toast('Sync settings saved','🔗'); }
-    } else {
-      toast('Sync settings saved','🔗');
-    }
-    initFirebase();
-    setTimeout(render, 600);
+  const so=el('btn-signout'); if(so) so.onclick=()=>{
+    signOutFirebase();
+    S.settings.guestMode=false; save();
+    toast('Signed out','👋');
+    showAuthGate('choice');
+    render();
   };
-  const ht=el('help-toggle'); if(ht) ht.onclick=()=>{
-    const b=el('help-body'); b.style.display=b.style.display==='none'?'block':'none';
-  };
+  const li=el('btn-login'); if(li) li.onclick=()=>{ showAuthGate(S.settings.guestMode?'in':'choice'); };
   const ex=el('btn-export'); if(ex) ex.onclick=exportData;
   const im=el('btn-import'); if(im) im.onclick=importData;
   const cl=el('btn-clear'); if(cl) cl.onclick=()=>{
@@ -1644,12 +1687,137 @@ function openManageCat(name){
 }
 
 /* ============================================================
+   AUTH GATE (shown only when BAKED.ownerEmail is set)
+   ============================================================ */
+function applyBaked(){
+  if(typeof BAKED==='undefined' || !BAKED) return;
+  if(BAKED.firebase){
+    S.cfg.firebase = (typeof BAKED.firebase==='string') ? BAKED.firebase : JSON.stringify(BAKED.firebase);
+  }
+  if(BAKED.sheetUrl){ S.cfg.sheet = BAKED.sheetUrl; }
+}
+let authMode='choice';   // 'choice' | 'in' | 'up'
+async function ensureAuthSdk(){
+  const cfg = parseFirebaseConfig(S.cfg.firebase);
+  if(!cfg || !cfg.databaseURL) return false;
+  try{
+    if(!window.firebase || !window.firebase.database){
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js');
+    }
+    if(!window.firebase.auth){
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js');
+    }
+    if(!window.firebase.apps.length) window.firebase.initializeApp(cfg);
+    return !!window.firebase.auth;
+  }catch(e){ console.warn('auth sdk load failed', e); return false; }
+}
+function showAuthGate(startMode){
+  authMode = startMode || 'choice';
+  let wrap = el('auth-gate');
+  if(!wrap){
+    wrap=document.createElement('div');
+    wrap.id='auth-gate'; wrap.className='overlay authgate';
+    (el('app')||document.body).appendChild(wrap);
+  }
+  drawAuthGate(wrap);
+  // make sure the SDK is ready by the time they submit
+  ensureAuthSdk().then(ok=>{
+    if(!ok && el('auth-gate')){
+      const err=el('auth-gate').querySelector('#au-err');
+      if(err) err.textContent='Sync is unavailable here — open the app from a web address (http/https), not a local file.';
+    }
+  });
+}
+function hideAuthGate(){ const g=el('auth-gate'); if(g) g.remove(); }
+function drawAuthGate(wrap){
+  if(authMode==='choice'){
+    wrap.innerHTML=`
+      <div class="authbox">
+        <div class="authlogo"><span class="brand-dot"></span> Wordbook</div>
+        <p class="authsub">Sign in to sync your words across every device, or start locally and decide later.</p>
+        <button class="btn" id="au-pick-login">Log in</button>
+        <button class="btn ghost" id="au-pick-guest" style="margin-top:.65rem">Continue as Guest</button>
+        <p class="authfoot">Guest mode keeps your words on this device only, until you sign in.</p>
+      </div>`;
+    wrap.querySelector('#au-pick-login').onclick=()=>{ authMode='in'; drawAuthGate(wrap); };
+    wrap.querySelector('#au-pick-guest').onclick=()=>{
+      S.settings.guestMode=true; save();
+      hideAuthGate();
+      fbReady=false; fbStatus='Guest mode — not synced';
+      render();
+    };
+    return;
+  }
+  const signup = authMode==='up';
+  wrap.innerHTML=`
+    <div class="authbox">
+      <button class="au-back" id="au-back">‹ Back</button>
+      <div class="authlogo"><span class="brand-dot"></span> Wordbook</div>
+      <p class="authsub">${signup?'Create your account once, then sign in on any device.':'Sign in to load and save your words across devices.'}</p>
+      <input class="input" id="au-email" type="email" placeholder="Email" autocomplete="username" value="${esc(BAKED&&BAKED.ownerEmail||'')}">
+      <input class="input" id="au-pass" type="password" placeholder="Password" autocomplete="current-password" style="margin-top:.6rem">
+      <div id="au-err" class="autherr"></div>
+      <button class="btn" id="au-go" style="margin-top:1rem">${signup?'Create account':'Sign in'}</button>
+      <button class="au-switch" id="au-switch">${signup?'Have an account? Sign in':'First time? Create your account'}</button>
+    </div>`;
+  wrap.querySelector('#au-back').onclick=()=>{ authMode='choice'; drawAuthGate(wrap); };
+  wrap.querySelector('#au-switch').onclick=()=>{ authMode=signup?'in':'up'; drawAuthGate(wrap); };
+  wrap.querySelector('#au-go').onclick=()=>doAuth(wrap);
+  const pass=wrap.querySelector('#au-pass');
+  pass.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); doAuth(wrap); } };
+  setTimeout(()=>{ const em=wrap.querySelector('#au-email'); if(!em) return; (em.value?pass:em).focus(); },60);
+}
+async function doAuth(wrap){
+  const email=(wrap.querySelector('#au-email').value||'').trim();
+  const pass=wrap.querySelector('#au-pass').value||'';
+  const errEl=wrap.querySelector('#au-err');
+  const btn=wrap.querySelector('#au-go');
+  errEl.textContent='';
+  if(!email||!pass){ errEl.textContent='Enter your email and password.'; return; }
+  btn.disabled=true; btn.textContent='…';
+  const ready = await ensureAuthSdk();
+  if(!ready){
+    btn.disabled=false; btn.textContent = authMode==='up'?'Create account':'Sign in';
+    errEl.textContent='Sync is unavailable here — open the app from a web address (http/https), not a local file.';
+    return;
+  }
+  const auth=window.firebase.auth();
+  try{ await auth.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL); }catch(e){}
+  const p = authMode==='up'
+    ? auth.createUserWithEmailAndPassword(email,pass)
+    : auth.signInWithEmailAndPassword(email,pass);
+  p.then(()=>{
+    // if initFirebase never attached a listener (e.g. gate opened manually), sync now
+    if(!fbReady) initFirebase();
+  }).catch(err=>{
+    btn.disabled=false; btn.textContent = authMode==='up'?'Create account':'Sign in';
+    const c=(err&&err.code)||'';
+    errEl.textContent =
+      c.includes('wrong-password')||c.includes('invalid-credential') ? 'Wrong email or password.' :
+      c.includes('user-not-found') ? 'No account yet — tap “Create your account”.' :
+      c.includes('email-already-in-use') ? 'That account exists — switch to Sign in.' :
+      c.includes('weak-password') ? 'Password should be at least 6 characters.' :
+      c.includes('invalid-email') ? 'That email doesn\'t look right.' :
+      c.includes('operation-not-allowed') ? 'Enable Email/Password sign-in in the Firebase console.' :
+      c.includes('unauthorized-domain') ? 'Add this site to Firebase ▸ Authentication ▸ Authorized domains.' :
+      (err&&err.message)||'Could not sign in.';
+  });
+  // onAuthStateChanged handles success (hides the gate + starts sync)
+}
+
+/* ============================================================
    BOOT
    ============================================================ */
 function boot(){
   load();
+  applyBaked();
   applyChrome();
   render();
+  // Show the Log in / Guest choice right away when a sign-in lock is configured.
+  // Doing it here (not inside initFirebase) means the screen appears even if
+  // Firebase is slow or blocked — the buttons always work.
+  if(requireAuth() && !S.settings.guestMode) showAuthGate('choice');
   if(S.cfg.firebase) initFirebase();
 }
 boot();
