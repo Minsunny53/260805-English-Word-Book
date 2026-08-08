@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<title>English Word Book</title>
+<title>Wordbook</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,500&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -496,6 +496,7 @@ const S = {
   cats: DEFAULT_CATS.slice(),
   lastCat: 'Book',
   lastSub: {},
+  catsUpdatedAt: 0,
   settings: { fs:'md', theme:'light', guestMode:false },
   game: { streak:0, best:0, lastActive:null, xp:0, bestScore:0 },
   cfg: { firebase:'', sheet:'' },
@@ -513,6 +514,7 @@ function load(){
     if(d.cats && d.cats.length) S.cats = d.cats;
     if(d.lastCat) S.lastCat = d.lastCat;
     if(d.lastSub) S.lastSub = d.lastSub;
+    if(d.catsUpdatedAt) S.catsUpdatedAt = d.catsUpdatedAt;
     if(d.settings) Object.assign(S.settings, d.settings);
     if(d.game) Object.assign(S.game, d.game);
     if(d.cfg) Object.assign(S.cfg, d.cfg);
@@ -521,10 +523,21 @@ function load(){
   S.cats.forEach(c=>{ if(!Array.isArray(c.subs)) c.subs=[]; if(!c.subLabel) c.subLabel='Source'; });
   if(typeof S.lastSub!=='object' || !S.lastSub) S.lastSub={};
 }
+let _catsSig = null;
+function catsSignature(){ try{ return JSON.stringify(S.cats); }catch(e){ return ''; } }
 function save(){
+  // Whenever the category list (including its titles/topics) changes, mark it and
+  // push upstream. Doing it here means every add/rename/delete path syncs, with no
+  // chance of one being forgotten.
+  const sig = catsSignature();
+  if(_catsSig !== null && sig !== _catsSig){
+    S.catsUpdatedAt = Date.now();
+    if(fbReady && fbDB){ try{ fbDB.ref('cats').set({ list:S.cats, updatedAt:S.catsUpdatedAt }); }catch(e){} }
+  }
+  _catsSig = sig;
   rawSet(KEY, JSON.stringify({
     entries:S.entries, cats:S.cats, lastCat:S.lastCat, lastSub:S.lastSub,
-    settings:S.settings, game:S.game, cfg:S.cfg
+    catsUpdatedAt:S.catsUpdatedAt, settings:S.settings, game:S.game, cfg:S.cfg
   }));
 }
 
@@ -665,9 +678,60 @@ function startDataSync(){
     fbStatus = 'Reached Firebase, but access was denied — check your Rules allow your account to read/write.';
     fbRefreshStatus();
   });
+
+  // Categories (and their titles/topics) sync too, so a book title added on one
+  // device shows up in the picker on every other device.
+  fbDB.ref('cats').on('value', snap=>{
+    const remote = snap.val();
+    if(!remote || !Array.isArray(remote.list)){
+      // nothing stored yet — seed it from this device
+      catsPush();
+      return;
+    }
+    if((remote.updatedAt||0) > (S.catsUpdatedAt||0)){
+      S.cats = mergeCats(S.cats, remote.list);
+      S.catsUpdatedAt = remote.updatedAt||Date.now();
+      const merged = catsSignature();
+      const changed = (merged !== JSON.stringify(remote.list));
+      _catsSig = merged;              // applying a remote change must not echo back
+      save();
+      if(changed) catsPush();         // unless our merge added something new
+      render();
+    } else if((remote.updatedAt||0) < (S.catsUpdatedAt||0)){
+      catsPush();   // ours is newer, push it up
+    }
+  }, err=>{});
+}
+/* Union-merge so a category added offline on one device is never silently lost. */
+function mergeCats(localCats, remoteCats){
+  const out = remoteCats.map(c=>({
+    name:c.name, color:c.color||'#64748B', emoji:c.emoji||'✳️',
+    subLabel:c.subLabel||'Source', subs:Array.isArray(c.subs)?c.subs.slice():[]
+  }));
+  const byName = {};
+  out.forEach(c=>byName[c.name.toLowerCase()]=c);
+  localCats.forEach(lc=>{
+    const hit = byName[lc.name.toLowerCase()];
+    if(!hit){ out.push(lc); return; }
+    // keep any sub items this device has that the remote copy lacks
+    (lc.subs||[]).forEach(s=>{
+      if(!hit.subs.some(x=>x.toLowerCase()===s.toLowerCase())) hit.subs.push(s);
+    });
+  });
+  return out;
+}
+function catsPush(){
+  if(!fbReady || !fbDB) return;
+  S.catsUpdatedAt = Date.now();
+  _catsSig = catsSignature();   // don't let save() fire a duplicate write
+  rawSet(KEY, JSON.stringify({
+    entries:S.entries, cats:S.cats, lastCat:S.lastCat, lastSub:S.lastSub,
+    catsUpdatedAt:S.catsUpdatedAt, settings:S.settings, game:S.game, cfg:S.cfg
+  }));
+  try{ fbDB.ref('cats').set({ list:S.cats, updatedAt:S.catsUpdatedAt }); }catch(e){}
 }
 function signOutFirebase(){
-  try{ if(fbDB) fbDB.ref('vocab').off(); }catch(e){}
+  try{ if(fbDB){ fbDB.ref('vocab').off(); fbDB.ref('cats').off(); } }catch(e){}
   try{ if(window.firebase && window.firebase.auth) window.firebase.auth().signOut(); }catch(e){}
   authed=false; fbReady=false; authUser=null; fbStatus='';
 }
