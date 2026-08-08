@@ -154,6 +154,18 @@ main{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
 .entry .ex{color:var(--ink-soft);font-size:.96rem;line-height:1.5;margin-top:.4rem;font-style:italic}
 .entry .note{margin-top:.5rem;font-size:.9rem;color:var(--ink);background:var(--surface2);
   padding:.4rem .7rem;border-radius:var(--r-xs);display:inline-block;font-weight:600}
+.entry .forms{margin-top:.25rem;font-size:.86rem;color:var(--ink-soft);font-weight:600;
+  font-family:'Fraunces',serif;font-style:italic}
+.linkrow{display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;margin-top:.6rem}
+.linkrow>svg{width:.95rem;height:.95rem;color:var(--ink-soft);flex:none;stroke-width:2}
+.linkchip{font-family:'Fraunces',serif;font-size:.88rem;font-weight:600;
+  background:var(--primary-soft);color:var(--primary-ink);padding:.2rem .55rem;border-radius:999px}
+.linkchip:active{transform:scale(.95)}
+.act.link.on{color:var(--primary);background:var(--primary-soft)}
+.tbleft{display:flex;align-items:center;gap:.6rem;min-width:0;flex-wrap:wrap}
+.sortbtn.act{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
+.sortbtn .chev{font-size:.75rem;opacity:.7}
+.sortbtn>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:9rem}
 .entry .foot{display:flex;align-items:center;justify-content:space-between;margin-top:.85rem;gap:.5rem}
 .entry .date{font-size:.76rem;color:var(--ink-soft);font-weight:600}
 .entry .acts{display:flex;gap:.3rem}
@@ -473,6 +485,7 @@ const I = {
   sort:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5h10M11 9h7M11 13h4M3 17l3 3 3-3M6 6v14"/></svg>',
   plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
   close:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  link:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
   x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>'
 };
 
@@ -500,7 +513,7 @@ const S = {
   settings: { fs:'md', theme:'light', guestMode:false },
   game: { streak:0, best:0, lastActive:null, xp:0, bestScore:0 },
   cfg: { firebase:'', sheet:'' },
-  ui: { tab:'register', filter:'All', sort:'newest', q:'', scope:'All' }
+  ui: { tab:'register', filter:'All', subFilter:'All', sort:'newest', q:'', scope:'All' }
 };
 
 function rawGet(k){ if(hasLS){try{return localStorage.getItem(k)}catch(e){hasLS=false}} return memStore[k]||null; }
@@ -760,10 +773,11 @@ function persistEntry(action, entry){
 /* ============================================================
    ENTRY CRUD
    ============================================================ */
-function addEntry({category, sub, word, example, note}){
+function addEntry({category, sub, word, example, note, forms}){
   const now = Date.now();
   const e = { id:uid(), category, sub:(sub||'').trim(), word:word.trim(), example:(example||'').trim(),
-    note:(note||'').trim(), date:now, updatedAt:now, done:false, fav:false };
+    note:(note||'').trim(), forms:(forms||'').trim(), links:[],
+    date:now, updatedAt:now, done:false, fav:false };
   S.entries.unshift(e);
   S.lastCat = category;
   touchStreak();
@@ -777,8 +791,41 @@ function updateEntry(id, patch){
 }
 function deleteEntry(id){
   const e = S.entries.find(x=>x.id===id);
+  // drop this word from any other word's link list so no dead references remain
+  S.entries.forEach(o=>{
+    if(o.id!==id && Array.isArray(o.links) && o.links.includes(id)){
+      o.links = o.links.filter(x=>x!==id);
+      o.updatedAt = Date.now();
+      persistEntry('update', o);
+    }
+  });
   S.entries = S.entries.filter(x=>x.id!==id);
   if(e) persistEntry('delete', e);
+}
+/* Links are mutual: connecting A→B also connects B→A. */
+function linksOf(e){ return Array.isArray(e && e.links) ? e.links : []; }
+function linkedEntries(e){
+  return linksOf(e).map(id=>S.entries.find(x=>x.id===id)).filter(Boolean);
+}
+function toggleLink(idA, idB){
+  if(idA===idB) return;
+  const a=S.entries.find(x=>x.id===idA), b=S.entries.find(x=>x.id===idB);
+  if(!a||!b) return;
+  if(!Array.isArray(a.links)) a.links=[];
+  if(!Array.isArray(b.links)) b.links=[];
+  const on = a.links.includes(idB);
+  if(on){
+    a.links = a.links.filter(x=>x!==idB);
+    b.links = b.links.filter(x=>x!==idA);
+  } else {
+    a.links.push(idB);
+    b.links.push(idA);
+  }
+  const now=Date.now();
+  a.updatedAt=now; b.updatedAt=now;
+  persistEntry('update', a);
+  persistEntry('update', b);
+  return !on;
 }
 
 /* ============================================================
@@ -865,6 +912,10 @@ function viewRegister(){
       <textarea class="area" id="in-ex" placeholder="How was it used? Write the sentence you saw or heard."></textarea>
     </div>
     <div class="field">
+      <label>Other forms</label>
+      <input class="input" id="in-forms" placeholder="e.g. ran · running · runs" autocomplete="off">
+    </div>
+    <div class="field">
       <label>Note or meaning</label>
       <input class="input" id="in-note" placeholder="A quick hint, synonym, or Korean meaning" autocomplete="off">
     </div>
@@ -900,13 +951,34 @@ function filteredEntries(){
   else if(f==='Done') list = list.filter(e=>e.done);
   else if(f==='Active') list = list.filter(e=>!e.done);
   else if(f!=='All') list = list.filter(e=>e.category===f);
+  const sf = S.ui.subFilter;
+  if(sf && sf!=='All'){
+    if(sf==='__none__') list = list.filter(e=>!e.sub);
+    else list = list.filter(e=>e.sub===sf);
+  }
   const q = S.ui.q.trim().toLowerCase();
   if(q) list = list.filter(e=>
     (e.word||'').toLowerCase().includes(q) ||
     (e.example||'').toLowerCase().includes(q) ||
-    (e.note||'').toLowerCase().includes(q));
+    (e.note||'').toLowerCase().includes(q) ||
+    (e.forms||'').toLowerCase().includes(q) ||
+    (e.sub||'').toLowerCase().includes(q));
   list.sort((a,b)=> S.ui.sort==='newest' ? b.date-a.date : a.date-b.date);
   return list;
+}
+/* Titles available for the current category filter, drawn from both the saved
+   category list and whatever titles actually appear on existing words. */
+function availableSubs(){
+  const f = S.ui.filter;
+  const cats = (f==='All'||f==='Favorites'||f==='Active'||f==='Done')
+    ? S.cats : S.cats.filter(c=>c.name===f);
+  const set = new Map();   // lowercase → display form
+  cats.forEach(c=>(c.subs||[]).forEach(s=>{ if(s) set.set(s.toLowerCase(), s); }));
+  const catNames = new Set(cats.map(c=>c.name));
+  S.entries.forEach(e=>{
+    if(e.sub && catNames.has(e.category)) set.set(e.sub.toLowerCase(), e.sub);
+  });
+  return [...set.values()].sort((a,b)=>a.localeCompare(b));
 }
 function viewRecords(){
   if(S.entries.length===0){
@@ -927,6 +999,9 @@ function viewRecords(){
   const list = filteredEntries();
   const rows = list.length ? list.map(entryRow).join('') :
     `<div class="empty" style="padding:2.5rem 1rem"><p>No words match this view.</p></div>`;
+  const subs = availableSubs();
+  const sf = S.ui.subFilter;
+  const subLabel = sf==='All' ? 'All titles' : (sf==='__none__' ? 'No title' : sf);
   return `
     <div class="searchwrap">${I.search}
       <input class="search" id="in-search" placeholder="Search words, examples, notes" value="${esc(S.ui.q)}" autocomplete="off">
@@ -934,20 +1009,26 @@ function viewRecords(){
     <div class="filterrow">${statusRow}</div>
     <div class="filterrow">${catRow}</div>
     <div class="toolbar">
-      <span class="count">${list.length} shown</span>
+      <div class="tbleft">
+        <span class="count">${list.length} shown</span>
+        ${subs.length ? `<button class="sortbtn ${sf!=='All'?'act':''}" data-action="pick-subfilter">${I.book}<span>${esc(subLabel)}</span><span class="chev">▾</span></button>` : ''}
+      </div>
       <button class="sortbtn" data-action="toggle-sort">${I.sort}${S.ui.sort==='newest'?'Newest first':'Oldest first'}</button>
     </div>
     <div class="rec-grid" id="rec-list">${rows}</div>`;
 }
 function entryRow(e){
   const c = catOf(e.category);
+  const linked = linkedEntries(e);
   return `
     <div class="entry ${e.done?'done':''}" style="--catc:${c.color}" data-id="${e.id}">
       <div class="top">
         <div style="flex:1;min-width:0">
           <div class="word">${esc(e.word)}</div>
+          ${e.forms?`<div class="forms">${esc(e.forms)}</div>`:''}
           ${e.example?`<div class="ex">${esc(e.example)}</div>`:''}
           ${e.note?`<div class="note">${esc(e.note)}</div>`:''}
+          ${linked.length?`<div class="linkrow">${I.link}${linked.map(l=>`<button class="linkchip" data-goto="${l.id}">${esc(l.word)}</button>`).join('')}</div>`:''}
         </div>
       </div>
       <div class="foot">
@@ -955,6 +1036,7 @@ function entryRow(e){
         <div class="acts">
           <button class="act star ${e.fav?'on':''}" data-act="fav" data-id="${e.id}" aria-label="Favorite">${I.star}</button>
           <button class="act check ${e.done?'on':''}" data-act="done" data-id="${e.id}" aria-label="Mark learned">${I.check}</button>
+          <button class="act link ${linked.length?'on':''}" data-act="link" data-id="${e.id}" aria-label="Link related words">${I.link}</button>
           <button class="act" data-act="edit" data-id="${e.id}" aria-label="Edit">${I.edit}</button>
           <button class="act" data-act="del" data-id="${e.id}" aria-label="Delete">${I.trash}</button>
         </div>
@@ -1119,11 +1201,12 @@ function bindView(){
 }
 
 function bindRegister(){
-  const wIn=el('in-word'), exIn=el('in-ex'), noteIn=el('in-note');
+  const wIn=el('in-word'), exIn=el('in-ex'), noteIn=el('in-note'), formsIn=el('in-forms');
   if(regDraft){
     if(wIn) wIn.value=regDraft.word;
     if(exIn) exIn.value=regDraft.ex;
     if(noteIn) noteIn.value=regDraft.note;
+    if(formsIn) formsIn.value=regDraft.forms||'';
     regDraft=null;
   }
 
@@ -1139,7 +1222,8 @@ function bindRegister(){
   if(btn) btn.onclick=()=>{
     const word=wIn.value.trim();
     if(!word){ toast('Type a word first','✍️'); wIn.focus(); return; }
-    addEntry({category:S.lastCat, sub:S.lastSub[S.lastCat]||'', word, example:exIn.value, note:noteIn.value});
+    addEntry({category:S.lastCat, sub:S.lastSub[S.lastCat]||'', word,
+      example:exIn.value, note:noteIn.value, forms:formsIn?formsIn.value:''});
     const cnt=S.entries.length;
     render();
     toast(`Saved · ${cnt} word${cnt===1?'':'s'} collected`, '✅');
@@ -1147,8 +1231,8 @@ function bindRegister(){
   };
 }
 function rerenderRegister(){
-  const w=el('in-word'), ex=el('in-ex'), nt=el('in-note');
-  regDraft={ word:w?w.value:'', ex:ex?ex.value:'', note:nt?nt.value:'' };
+  const w=el('in-word'), ex=el('in-ex'), nt=el('in-note'), fm=el('in-forms');
+  regDraft={ word:w?w.value:'', ex:ex?ex.value:'', note:nt?nt.value:'', forms:fm?fm.value:'' };
   render();
 }
 function openSubPicker(catName){
@@ -1184,11 +1268,33 @@ function bindRecords(){
   const s=el('in-search');
   if(s){ s.oninput=()=>{ S.ui.q=s.value; refreshRecordsList(); }; }
   document.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{
-    S.ui.filter=b.dataset.filter; render();
+    S.ui.filter=b.dataset.filter;
+    S.ui.subFilter='All';        // titles differ per category, so start fresh
+    render();
   });
   const sortBtn=document.querySelector('[data-action="toggle-sort"]');
   if(sortBtn) sortBtn.onclick=()=>{ S.ui.sort=S.ui.sort==='newest'?'oldest':'newest'; render(); };
+  const subBtn=document.querySelector('[data-action="pick-subfilter"]');
+  if(subBtn) subBtn.onclick=openSubFilterPicker;
   bindEntryActions();
+}
+function openSubFilterPicker(){
+  const subs=availableSubs();
+  const cur=S.ui.subFilter;
+  const rows=subs.map(s=>`
+    <button class="pickrow ${cur===s?'on':''}" data-pickfilter="${esc(s)}">
+      <span>${esc(s)}</span>${cur===s?'<span class="tick">✓</span>':''}
+    </button>`).join('');
+  const wrap=sheetOverlay(`
+    <h3>Filter by title</h3>
+    <div class="picklist">
+      <button class="pickrow ${cur==='All'?'on':''}" data-pickfilter="All"><span>All titles</span>${cur==='All'?'<span class="tick">✓</span>':''}</button>
+      ${rows}
+      <button class="pickrow ${cur==='__none__'?'on':''}" data-pickfilter="__none__"><span style="color:var(--ink-soft)">No title</span>${cur==='__none__'?'<span class="tick">✓</span>':''}</button>
+    </div>`);
+  wrap.querySelectorAll('[data-pickfilter]').forEach(b=>b.onclick=()=>{
+    S.ui.subFilter=b.dataset.pickfilter; wrap.remove(); render();
+  });
 }
 function refreshRecordsList(){
   const list=filteredEntries();
@@ -1203,9 +1309,67 @@ function bindEntryActions(){
     const e=S.entries.find(x=>x.id===id); if(!e) return;
     if(act==='fav'){ updateEntry(id,{fav:!e.fav}); toast(e.fav?'Removed from favorites':'Added to favorites', e.fav?'☆':'⭐'); render(); }
     else if(act==='done'){ updateEntry(id,{done:!e.done}); if(!e.done){touchStreak();save();} toast(e.done?'Back to review':'Marked as learned', e.done?'↩️':'✅'); render(); }
+    else if(act==='link'){ openLinkPicker(id); }
     else if(act==='edit'){ openEdit(id); }
     else if(act==='del'){ openConfirmDelete(id); }
   });
+  // tapping a linked word jumps to it
+  document.querySelectorAll('[data-goto]').forEach(b=>b.onclick=(ev)=>{
+    ev.stopPropagation();
+    const t=S.entries.find(x=>x.id===b.dataset.goto);
+    if(!t) return;
+    S.ui.filter='All'; S.ui.subFilter='All'; S.ui.q=t.word;
+    render();
+    toast('Jumped to "'+t.word+'"','🔗');
+  });
+}
+/* Connect related words — mutual, searchable, any number of links. */
+function openLinkPicker(id){
+  const e=S.entries.find(x=>x.id===id); if(!e) return;
+  let q='';
+  const wrap=sheetOverlay(`
+    <h3>Link related words</h3>
+    <p style="color:var(--ink-soft);font-size:.88rem;line-height:1.5;margin:-.6rem 0 1rem">
+      Connect <b>${esc(e.word)}</b> to synonyms, opposites, or words from the same scene. Links work both ways.</p>
+    <div class="searchwrap" style="margin-bottom:.7rem">${I.search}
+      <input class="search" id="lk-q" placeholder="Search your words" autocomplete="off"></div>
+    <div class="picklist" id="lk-list"></div>`);
+  const listEl=wrap.querySelector('#lk-list');
+  function draw(){
+    const cur=S.entries.find(x=>x.id===id);
+    const linkSet=new Set(linksOf(cur));
+    const needle=q.trim().toLowerCase();
+    let pool=S.entries.filter(x=>x.id!==id);
+    if(needle) pool=pool.filter(x=>(x.word||'').toLowerCase().includes(needle));
+    // linked ones first, then most recent
+    pool.sort((a,b)=>{
+      const la=linkSet.has(a.id)?0:1, lb=linkSet.has(b.id)?0:1;
+      return la!==lb ? la-lb : b.date-a.date;
+    });
+    pool=pool.slice(0,40);
+    if(pool.length===0){
+      listEl.innerHTML=`<div style="color:var(--ink-soft);padding:1rem;text-align:center;font-weight:600">${S.entries.length<2?'Save another word first — you need two to make a link.':'No words match that search.'}</div>`;
+      return;
+    }
+    listEl.innerHTML=pool.map(x=>{
+      const on=linkSet.has(x.id);
+      return `<button class="pickrow ${on?'on':''}" data-link="${x.id}">
+        <span><span style="font-family:'Fraunces',serif">${esc(x.word)}</span>
+        ${x.sub?`<span style="color:var(--ink-soft);font-size:.8rem;font-weight:600"> · ${esc(x.sub)}</span>`:''}</span>
+        ${on?'<span class="tick">✓ linked</span>':'<span style="color:var(--ink-soft);font-size:.85rem">+ link</span>'}
+      </button>`;
+    }).join('');
+    listEl.querySelectorAll('[data-link]').forEach(b=>b.onclick=()=>{
+      const added=toggleLink(id, b.dataset.link);
+      const other=S.entries.find(x=>x.id===b.dataset.link);
+      toast(added?`Linked to "${other.word}"`:`Unlinked "${other.word}"`, added?'🔗':'✂️');
+      draw();
+    });
+  }
+  const qi=wrap.querySelector('#lk-q');
+  qi.oninput=()=>{ q=qi.value; draw(); };
+  draw();
+  wrap.addEventListener('click', ev=>{ if(ev.target===wrap) render(); }, true);
 }
 
 function bindQuiz(){
@@ -1255,6 +1419,7 @@ function openEdit(id){
     <div class="field"><label>Category</label><div class="filterrow" id="ec-row">${catChips}</div></div>
     <div class="field"><label id="es-label"></label><div class="filterrow" id="es-row"></div></div>
     <div class="field"><label>Word</label><input class="input wordinput" id="ed-word" value="${esc(e.word)}"></div>
+    <div class="field"><label>Other forms</label><input class="input" id="ed-forms" value="${esc(e.forms||'')}" placeholder="e.g. ran · running · runs"></div>
     <div class="field"><label>Example</label><textarea class="area" id="ed-ex">${esc(e.example)}</textarea></div>
     <div class="field"><label>Note</label><input class="input" id="ed-note" value="${esc(e.note)}"></div>
     <div class="row2">
@@ -1285,7 +1450,8 @@ function openEdit(id){
   el('ed-save').onclick=()=>{
     const w=el('ed-word').value.trim();
     if(!w){ toast('Word can\'t be empty'); return; }
-    updateEntry(id,{category:cat, sub, word:w, example:el('ed-ex').value.trim(), note:el('ed-note').value.trim()});
+    updateEntry(id,{category:cat, sub, word:w, example:el('ed-ex').value.trim(),
+      note:el('ed-note').value.trim(), forms:el('ed-forms').value.trim()});
     closeModal(); render(); toast('Updated','✏️');
   };
 }
@@ -1407,8 +1573,10 @@ function renderFlash(){
         <div class="fc-face fc-back">
           <span class="eyebrow">Meaning &amp; usage</span>
           <div class="bw">${esc(e.word)}</div>
+          ${e.forms?`<div style="font-family:'Fraunces',serif;font-style:italic;color:var(--ink-soft);font-size:.95rem">${esc(e.forms)}</div>`:''}
           ${e.example?`<div class="bex">"${esc(e.example)}"</div>`:'<div class="bex">No example saved yet.</div>'}
           ${e.note?`<div class="bnote">${esc(e.note)}</div>`:''}
+          ${linkedEntries(e).length?`<div class="linkrow" style="justify-content:center">${I.link}${linkedEntries(e).map(l=>`<span class="linkchip">${esc(l.word)}</span>`).join('')}</div>`:''}
         </div>
       </div>
     </div>`;
